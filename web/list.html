@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Liste de souhaits</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; background: #f5f5f5; }
+  h1 { font-size: 1.4rem; }
+  .wish { background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px;
+          display: flex; gap: 12px; align-items: center; }
+  .wish img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+  .wish .info { flex: 1; }
+  .price { color: #666; font-size: 0.9rem; }
+  button { background: #ff6b4a; color: white; border: none; border-radius: 20px;
+           padding: 8px 14px; font-weight: bold; }
+  button.reserved { background: #ccc; }
+</style>
+</head>
+<body>
+  <h1 id="listName">Chargement...</h1>
+  <div id="wishes"></div>
+
+  <script>
+    // Remplacer par les valeurs de votre projet
+    // (Dashboard Supabase > Project Settings > API)
+    const SUPABASE_URL = "https://clnxadmiusxbrgvwwrmv.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbnhhZG1pdXN4YnJndnd3cm12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5MTM1ODUsImV4cCI6MjEwNTQ4OTU4NX0.O9XNOwkdIcyLSHs6LWPCct3A4C5f-J2xP7tzbmPj0pQ";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // URL attendue : list.html?token=abc12345
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+
+    async function main() {
+      if (!token) {
+        document.getElementById("listName").innerText = "Lien invalide";
+        return;
+      }
+
+      const { data: list, error: listError } = await supabase
+        .from("wishlists")
+        .select("*")
+        .eq("share_token", token)
+        .single();
+
+      if (listError || !list) {
+        document.getElementById("listName").innerText = "Liste introuvable";
+        return;
+      }
+      document.getElementById("listName").innerText = list.name;
+
+      const { data: wishes } = await supabase
+        .from("wishes")
+        .select("*")
+        .eq("list_id", list.id);
+
+      const container = document.getElementById("wishes");
+      for (const wish of wishes || []) {
+        const { data: reservation } = await supabase
+          .from("reservations")
+          .select("*")
+          .eq("wish_id", wish.id)
+          .maybeSingle();
+        const isReserved = !!reservation;
+
+        const el = document.createElement("div");
+        el.className = "wish";
+        el.innerHTML = `
+          ${wish.image_url ? `<img src="${wish.image_url}" />` : ""}
+          <div class="info">
+            <div>${wish.name}</div>
+            ${wish.price ? `<div class="price">${wish.price} ${wish.currency || ""}</div>` : ""}
+          </div>
+          <button class="${isReserved ? "reserved" : ""}">
+            ${isReserved ? "Réservé" : "Je l'offre"}
+          </button>
+        `;
+        const btn = el.querySelector("button");
+        if (!isReserved) {
+          btn.onclick = async () => {
+            const guestName = prompt("Votre prénom (pour info aux autres invités) :");
+            if (!guestName) return;
+            const { error } = await supabase
+              .from("reservations")
+              .insert({ wish_id: wish.id, reserved_by_name: guestName });
+            if (error) {
+              alert("Impossible de réserver, réessayez.");
+              return;
+            }
+            btn.innerText = "Réservé";
+            btn.classList.add("reserved");
+            btn.onclick = null;
+          };
+        }
+        container.appendChild(el);
+      }
+    }
+    main();
+  </script>
+</body>
+</html>
