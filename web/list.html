@@ -27,7 +27,7 @@
     // (Dashboard Supabase > Project Settings > API)
     const SUPABASE_URL = "https://clnxadmiusxbrgvwwrmv.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbnhhZG1pdXN4YnJndnd3cm12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5MTM1ODUsImV4cCI6MjEwNTQ4OTU4NX0.O9XNOwkdIcyLSHs6LWPCct3A4C5f-J2xP7tzbmPj0pQ";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // URL attendue : list.html?token=abc12345
     const params = new URLSearchParams(window.location.search);
@@ -39,7 +39,7 @@
         return;
       }
 
-      const { data: list, error: listError } = await supabase
+      const { data: list, error: listError } = await supabaseClient
         .from("wishlists")
         .select("*")
         .eq("share_token", token)
@@ -51,14 +51,14 @@
       }
       document.getElementById("listName").innerText = list.name;
 
-      const { data: wishes } = await supabase
+      const { data: wishes } = await supabaseClient
         .from("wishes")
         .select("*")
         .eq("list_id", list.id);
 
       const container = document.getElementById("wishes");
       for (const wish of wishes || []) {
-        const { data: reservation } = await supabase
+        const { data: reservation } = await supabaseClient
           .from("reservations")
           .select("*")
           .eq("wish_id", wish.id)
@@ -82,7 +82,7 @@
           btn.onclick = async () => {
             const guestName = prompt("Votre prénom (pour info aux autres invités) :");
             if (!guestName) return;
-            const { error } = await supabase
+            const { error } = await supabaseClient
               .from("reservations")
               .insert({ wish_id: wish.id, reserved_by_name: guestName });
             if (error) {
