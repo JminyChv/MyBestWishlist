@@ -13,9 +13,12 @@
   .wish img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
   .wish .info { flex: 1; }
   .price { color: #666; font-size: 0.9rem; }
+  a.link { font-size: 0.85rem; color: #ff6b4a; }
   button { background: #ff6b4a; color: white; border: none; border-radius: 20px;
            padding: 8px 14px; font-weight: bold; }
   button.reserved { background: #ccc; }
+  button.mine { background: #888; }
+  button:disabled { cursor: default; }
 </style>
 </head>
 <body>
@@ -23,79 +26,159 @@
   <div id="wishes"></div>
 
   <script>
-    // Remplacer par les valeurs de votre projet
-    // (Dashboard Supabase > Project Settings > API)
     const SUPABASE_URL = "https://clnxadmiusxbrgvwwrmv.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbnhhZG1pdXN4YnJndnd3cm12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5MTM1ODUsImV4cCI6MjEwNTQ4OTU4NX0.O9XNOwkdIcyLSHs6LWPCct3A4C5f-J2xP7tzbmPj0pQ";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // URL attendue : list.html?token=abc12345
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
+    const token = new URLSearchParams(window.location.search).get("token");
+    const STORE_KEY = "mbw_cancel_tokens";
+
+    function loadCancelTokens() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch (e) { return {}; }
+    }
+    function saveCancelToken(wishId, cancelToken) {
+      try {
+        const t = loadCancelTokens();
+        t[wishId] = cancelToken;
+        localStorage.setItem(STORE_KEY, JSON.stringify(t));
+      } catch (e) {}
+    }
+    function removeCancelToken(wishId) {
+      try {
+        const t = loadCancelTokens();
+        delete t[wishId];
+        localStorage.setItem(STORE_KEY, JSON.stringify(t));
+      } catch (e) {}
+    }
+
+    function isHttpUrl(u) {
+      try {
+        const x = new URL(u);
+        return x.protocol === "https:" || x.protocol === "http:";
+      } catch (e) { return false; }
+    }
+
+    // Création d'éléments avec textContent : aucun HTML venant des données n'est interprété
+    function el(tag, className, text) {
+      const e = document.createElement(tag);
+      if (className) e.className = className;
+      if (text !== undefined && text !== null) e.textContent = text;
+      return e;
+    }
+
+    async function fetchList() {
+      const { data, error } = await supabaseClient.rpc("get_shared_list", { p_token: token });
+      if (error || !data) return null;
+      return data;
+    }
+
+    async function refresh() {
+      const list = await fetchList();
+      if (list) render(list);
+    }
+
+    function render(list) {
+      const container = document.getElementById("wishes");
+      container.replaceChildren();
+      const cancelTokens = loadCancelTokens();
+
+      if (!list.wishes || list.wishes.length === 0) {
+        container.appendChild(el("p", null, "Aucun souhait pour le moment."));
+        return;
+      }
+
+      for (const wish of list.wishes) {
+        const card = el("div", "wish");
+
+        if (wish.image_url && isHttpUrl(wish.image_url)) {
+          const img = el("img");
+          img.src = wish.image_url;
+          img.alt = "";
+          card.appendChild(img);
+        }
+
+        const info = el("div", "info");
+        info.appendChild(el("div", null, wish.name));
+        if (wish.price !== null && wish.price !== undefined) {
+          info.appendChild(el("div", "price", wish.price + " " + (wish.currency || "")));
+        }
+        if (wish.note) info.appendChild(el("div", "price", wish.note));
+        if (wish.source_url && isHttpUrl(wish.source_url)) {
+          const a = el("a", "link", "Voir le produit");
+          a.href = wish.source_url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          info.appendChild(a);
+        }
+        card.appendChild(info);
+
+        const btn = el("button");
+        if (!wish.reserved) {
+          btn.textContent = "Je l'offre";
+          btn.onclick = () => reserve(list, wish);
+        } else if (cancelTokens[wish.id]) {
+          btn.textContent = "Annuler ma réservation";
+          btn.className = "mine";
+          btn.onclick = () => cancelMine(wish);
+        } else {
+          btn.textContent = "Réservé";
+          btn.className = "reserved";
+          btn.disabled = true;
+        }
+        card.appendChild(btn);
+
+        container.appendChild(card);
+      }
+    }
+
+    async function reserve(list, wish) {
+      const hint = list.owner_sees_reservations
+        ? "Votre prénom (le créateur de la liste verra qui a réservé) :"
+        : "Votre prénom (le créateur de la liste ne verra pas les réservations) :";
+      const name = prompt(hint);
+      if (!name || !name.trim()) return;
+
+      const { data: cancelToken, error } = await supabaseClient.rpc("reserve_wish", {
+        p_token: token,
+        p_wish_id: wish.id,
+        p_name: name.trim()
+      });
+
+      if (error) {
+        const msg = (error.message || "").includes("already_reserved")
+          ? "Ce cadeau vient d'être réservé par quelqu'un d'autre."
+          : "Impossible de réserver, réessayez.";
+        alert(msg);
+        await refresh();
+        return;
+      }
+
+      saveCancelToken(wish.id, cancelToken);
+      await refresh();
+    }
+
+    async function cancelMine(wish) {
+      if (!confirm("Annuler votre réservation ?")) return;
+      const cancelToken = loadCancelTokens()[wish.id];
+      const { error } = await supabaseClient.rpc("cancel_reservation", {
+        p_wish_id: wish.id,
+        p_cancel_token: cancelToken
+      });
+      if (error) {
+        alert("Impossible d'annuler, réessayez.");
+        return;
+      }
+      removeCancelToken(wish.id);
+      await refresh();
+    }
 
     async function main() {
-      if (!token) {
-        document.getElementById("listName").innerText = "Lien invalide";
-        return;
-      }
-
-      const { data: list, error: listError } = await supabaseClient
-        .from("wishlists")
-        .select("*")
-        .eq("share_token", token)
-        .single();
-
-      if (listError || !list) {
-        document.getElementById("listName").innerText = "Liste introuvable";
-        return;
-      }
-      document.getElementById("listName").innerText = list.name;
-
-      const { data: wishes } = await supabaseClient
-        .from("wishes")
-        .select("*")
-        .eq("list_id", list.id);
-
-      const container = document.getElementById("wishes");
-      for (const wish of wishes || []) {
-        const { data: reservation } = await supabaseClient
-          .from("reservations")
-          .select("*")
-          .eq("wish_id", wish.id)
-          .maybeSingle();
-        const isReserved = !!reservation;
-
-        const el = document.createElement("div");
-        el.className = "wish";
-        el.innerHTML = `
-          ${wish.image_url ? `<img src="${wish.image_url}" />` : ""}
-          <div class="info">
-            <div>${wish.name}</div>
-            ${wish.price ? `<div class="price">${wish.price} ${wish.currency || ""}</div>` : ""}
-          </div>
-          <button class="${isReserved ? "reserved" : ""}">
-            ${isReserved ? "Réservé" : "Je l'offre"}
-          </button>
-        `;
-        const btn = el.querySelector("button");
-        if (!isReserved) {
-          btn.onclick = async () => {
-            const guestName = prompt("Votre prénom (pour info aux autres invités) :");
-            if (!guestName) return;
-            const { error } = await supabaseClient
-              .from("reservations")
-              .insert({ wish_id: wish.id, reserved_by_name: guestName });
-            if (error) {
-              alert("Impossible de réserver, réessayez.");
-              return;
-            }
-            btn.innerText = "Réservé";
-            btn.classList.add("reserved");
-            btn.onclick = null;
-          };
-        }
-        container.appendChild(el);
-      }
+      const title = document.getElementById("listName");
+      if (!token) { title.textContent = "Lien invalide"; return; }
+      const list = await fetchList();
+      if (!list) { title.textContent = "Liste introuvable"; return; }
+      title.textContent = list.name;
+      render(list);
     }
     main();
   </script>
