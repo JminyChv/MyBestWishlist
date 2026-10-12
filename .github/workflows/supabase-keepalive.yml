@@ -1,0 +1,22 @@
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://clnxadmiusxbrgvwwrmv.supabase.co
+      SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbnhhZG1pdXN4YnJndnd3cm12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5MTM1ODUsImV4cCI6MjEwNTQ4OTU4NX0.O9XNOwkdIcyLSHs6LWPCct3A4C5f-J2xP7tzbmPj0pQ
+    steps:
+      - name: Interroger la base Supabase
+        run: |
+          curl --fail --silent --show-error --max-time 30 --retry 3 --retry-delay 10 \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/get_shared_list" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"p_token":"keepalive-ping"}'
